@@ -26,6 +26,8 @@ import torch.nn.functional as F
 import torch.nn as nn
 import numpy as np
 
+import pandas as pd
+
 
 
 model_names = sorted(name for name in models.__dict__
@@ -723,6 +725,7 @@ def validate_one_adv_ensemble(args, test_loader, model, criterion, attack_algo, 
 
 
 def validate_one_adv(args, test_loader, model, criterion, attack_algo, T, K=0, flop_table=None):
+    time_record = []
     batch_time = AverageMeter()
     losses = AverageMeter()
     top1 = AverageMeter()
@@ -888,11 +891,10 @@ def validate_one_adv(args, test_loader, model, criterion, attack_algo, T, K=0, f
                 exit_b6.update(0, 1)
                 exit_m.update(1,1)
                 decision.append(6)
-            
-
-
 
         batch_time.update(time.time() - end)
+
+        time_record.append((time.time() - end) * 1000)
         end = time.time()
 
         if (i % args.print_freq == 0) or (i == len(test_loader) - 1):
@@ -932,7 +934,7 @@ def validate_one_adv(args, test_loader, model, criterion, attack_algo, T, K=0, f
     logging.info(' * MFlops {flops:.2f}'.format(flops=flops))
     print(' * Prec@1 {top1.avg:.3f}'.format(top1=top1))
     print(' * MFlops {flops:.2f}'.format(flops=flops))
-    return top1.avg, decision
+    return top1.avg, decision, time_record
 
 
 
@@ -1496,21 +1498,33 @@ def test_model(args):
     T[4] = T[4] - 0.05
 
 
-    print('Eval on Clean Images')
-    validate_one(args, test_dp_loader, model, criterion,  T, flop_table=flop_table)
-    
+    # print('Eval on Clean Images')
+    # validate_one(args, test_dp_loader, model, criterion,  T, flop_table=flop_table)
+    total_time = []
     print('Eval on Branchy Attack')
-    validate_one_adv(args, test_dp_loader, model, criterion, ifgm_branchy, T, flop_table=flop_table)
+    _, _, batch_time = validate_one_adv(args, test_dp_loader, model, criterion, ifgm_branchy, T, flop_table=flop_table)
+    total_time.extend(batch_time[1:])
+        
+    
 
     print('Eval on Max Attack')
-    validate_one_adv(args, test_dp_loader, model, criterion, ifgm_max_v2, T, flop_table=flop_table)
+    _, _, batch_time = validate_one_adv(args, test_dp_loader, model, criterion, ifgm_max_v2, T, flop_table=flop_table)
+    total_time.extend(batch_time[1:])
 
     for k in range(7):
         if k != 6:
             print('Eval on Branch' + str(k+1) + ' Attack')
         else:
             print('Eval on Main Branch Attack')
-        validate_one_adv(args, test_dp_loader, model, criterion, ifgm_k, T, k, flop_table=flop_table)
+        _, _, batch_time = validate_one_adv(args, test_dp_loader, model, criterion, ifgm_k, T, k, flop_table=flop_table)
+        total_time.extend(batch_time[1:])
+    
+    df = pd.DataFrame()
+    df["InferenceLatency (ms)"] = total_time
+    df.to_csv("RDINets.csv", index=False)
+
+
+    
  
 
 def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
